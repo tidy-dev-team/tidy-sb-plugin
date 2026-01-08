@@ -65,20 +65,45 @@ export default function () {
         initials: "initials",
       };
 
-      // Separate text properties from other properties
+      // Separate TEXT properties from other properties
+      // TEXT properties need special handling - we update the text node directly
       const propertiesToSet: Record<string, any> = {};
       const textPropertiesToSet: Record<string, string> = {};
       
       for (const [propKey, propValue] of Object.entries(props)) {
         const figmaPropertyName = propertyMapping[propKey];
         
-        if (figmaPropertyName && availableProps.includes(figmaPropertyName)) {
-          // Check if it's a text property
-          const propDef = instance.componentProperties[figmaPropertyName];
-          if (propDef && propDef.type === "TEXT") {
-            textPropertiesToSet[figmaPropertyName] = String(propValue);
+        if (figmaPropertyName) {
+          // Find the actual property name in Figma (it might have emoji/variable ID suffix)
+          // e.g., "initials" might be stored as "✏️ initials#262:0"
+          let actualPropertyName: string | null = null;
+          
+          // First, try exact match
+          if (availableProps.includes(figmaPropertyName)) {
+            actualPropertyName = figmaPropertyName;
           } else {
-            propertiesToSet[figmaPropertyName] = propValue;
+            // Try to find by matching the base name (ignoring emoji and variable ID)
+            // Look for properties that contain our property name
+            for (const availableProp of availableProps) {
+              // Remove emoji and variable ID suffix (e.g., "✏️ initials#262:0" -> "initials")
+              const baseName = availableProp.replace(/^[^\w]*/, '').split('#')[0].trim();
+              if (baseName.toLowerCase() === figmaPropertyName.toLowerCase()) {
+                actualPropertyName = availableProp;
+                break;
+              }
+            }
+          }
+          
+          if (actualPropertyName) {
+            const propDef = instance.componentProperties[actualPropertyName];
+            if (propDef && propDef.type === "TEXT") {
+              textPropertiesToSet[actualPropertyName] = String(propValue);
+              console.log(`Found TEXT property: "${actualPropertyName}" (mapped from "${figmaPropertyName}")`);
+            } else {
+              propertiesToSet[actualPropertyName] = propValue;
+            }
+          } else {
+            console.warn(`Property "${figmaPropertyName}" not found in available properties`);
           }
         }
       }
@@ -87,31 +112,96 @@ export default function () {
       if (Object.keys(propertiesToSet).length > 0) {
         try {
           instance.setProperties(propertiesToSet);
+          console.log("Set non-text properties:", propertiesToSet);
         } catch (error) {
           console.error("Property setting error:", error);
         }
       }
 
-      // Set text properties by finding and updating text nodes
+      // Handle TEXT properties by updating text nodes directly
+      // Don't use setProperties() for TEXT - update the text node instead
       if (Object.keys(textPropertiesToSet).length > 0) {
-        try {
-          // Find text nodes in the instance and update them
-          const textNodes = instance.findAll(node => node.type === "TEXT") as TextNode[];
-          
+        const instanceTextNodes = instance.findAll(node => node.type === "TEXT") as TextNode[];
+        
+        console.log(`Found ${instanceTextNodes.length} text node(s) in instance`);
+        console.log("Text properties to set:", textPropertiesToSet);
+        
+        if (instanceTextNodes.length === 0) {
+          console.error("No text nodes found in instance");
+          figma.notify("⚠️ No text nodes found in component", { timeout: 3000 });
+        } else {
+          // For each text property, find and update the corresponding text node
           for (const [propName, propValue] of Object.entries(textPropertiesToSet)) {
-            // Try to set via component properties first
-            try {
-              instance.setProperties({ [propName]: propValue });
-            } catch (e) {
-              // If that fails, try to find and update the text node directly
-              for (const textNode of textNodes) {
-                await figma.loadFontAsync(textNode.fontName as FontName);
-                textNode.characters = propValue;
+            console.log(`Looking for text node for property "${propName}" with value "${propValue}"`);
+            
+            let targetTextNode: TextNode | null = null;
+            
+            // Strategy 1: If there's only one text node, use it
+            if (instanceTextNodes.length === 1) {
+              targetTextNode = instanceTextNodes[0];
+              console.log("Using single text node");
+            } else {
+              // Strategy 2: Find text node with bound variable (indicates it's bound to a property)
+              for (const textNode of instanceTextNodes) {
+                const boundVar = textNode.boundVariables?.characters;
+                if (boundVar) {
+                  console.log(`Found text node with bound variable: ${boundVar.id}`);
+                  targetTextNode = textNode;
+                  break;
+                }
+              }
+              
+              // Strategy 3: If multiple text properties, try to match by checking main component
+              if (!targetTextNode && instanceTextNodes.length > 0) {
+                const mainComponent = instance.mainComponent;
+                if (mainComponent) {
+                  const mainTextNodes = mainComponent.findAll(node => node.type === "TEXT") as TextNode[];
+                  console.log(`Found ${mainTextNodes.length} text node(s) in main component`);
+                  
+                  // Match by position/index
+                  if (mainTextNodes.length === instanceTextNodes.length) {
+                    // If counts match, use first one (common case: single text property)
+                    if (Object.keys(textPropertiesToSet).length === 1) {
+                      targetTextNode = instanceTextNodes[0];
+                      console.log("Using first text node (matched by count)");
+                    }
+                  }
+                }
+                
+                // Strategy 4: Fallback to first text node
+                if (!targetTextNode) {
+                  targetTextNode = instanceTextNodes[0];
+                  console.log("Using first text node as fallback");
+                }
               }
             }
+            
+            // Update the text node
+            if (targetTextNode) {
+              try {
+                const currentText = targetTextNode.characters;
+                console.log(`Current text in node: "${currentText}"`);
+                
+                await figma.loadFontAsync(targetTextNode.fontName as FontName);
+                targetTextNode.characters = propValue;
+                
+                // Verify it was set
+                const newText = targetTextNode.characters;
+                console.log(`✅ Updated text node for "${propName}" from "${currentText}" to "${newText}"`);
+                
+                if (newText !== propValue) {
+                  console.warn(`⚠️ Text mismatch! Expected "${propValue}" but got "${newText}"`);
+                  figma.notify(`⚠️ Text update may have failed for "${propName}"`, { timeout: 3000 });
+                }
+              } catch (error) {
+                console.error(`Error updating text node for "${propName}":`, error);
+                figma.notify(`❌ Error updating "${propName}": ${(error as Error).message}`, { error: true });
+              }
+            } else {
+              console.error(`❌ Could not find text node for property: ${propName}`);
+              figma.notify(`❌ Could not find text node for "${propName}"`, { error: true });
+            }
           }
-        } catch (error) {
-          console.error("Text property setting error:", error);
         }
       }
 
