@@ -15,6 +15,8 @@ import { emit, on } from "@create-figma-plugin/utilities";
 import { h, JSX, Fragment } from "preact";
 import { useCallback, useState, useEffect } from "preact/hooks";
 
+import "!./styles.css";
+
 import {
   CloseHandler,
   CreateAvatarHandler,
@@ -197,9 +199,14 @@ function Plugin() {
           <TextboxMultiline value={result} rows={8} disabled />
         </Fragment>
       )}
-      <VerticalSpace space="extraLarge" />
+      <VerticalSpace space="extraSmall" />
       <Columns space="extraSmall">
-        <Button fullWidth onClick={handleCloseButtonClick} secondary>
+        <Button
+          fullWidth
+          onClick={handleCloseButtonClick}
+          secondary
+          className={"secondary"}
+        >
           Close
         </Button>
       </Columns>
