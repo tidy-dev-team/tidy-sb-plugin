@@ -8,7 +8,8 @@ import {
   TextboxMultiline,
   VerticalSpace,
   LoadingIndicator,
-  Textbox,
+  Dropdown,
+  DropdownOption,
 } from "@create-figma-plugin/ui";
 import { emit, on } from "@create-figma-plugin/utilities";
 import { h, JSX, Fragment } from "preact";
@@ -41,7 +42,7 @@ function Plugin() {
   },
   []);
 
-  const handleComponentNameInput = useCallback(function (
+  const handleComponentNameChange = useCallback(function (
     event: JSX.TargetedEvent<HTMLInputElement>
   ) {
     const newValue = event.currentTarget.value;
@@ -148,6 +149,11 @@ function Plugin() {
     emit<CloseHandler>("CLOSE");
   }, []);
 
+  const componentOptions: Array<DropdownOption> = [
+    { value: "avatar", text: "avatar" },
+    { value: "button", text: "button" },
+  ];
+
   return (
     <Container space="medium">
       <VerticalSpace space="large" />
@@ -155,10 +161,10 @@ function Plugin() {
         <Muted>Figma Component Name</Muted>
       </Text>
       <VerticalSpace space="extraSmall" />
-      <Textbox
-        onInput={handleComponentNameInput}
+      <Dropdown
+        onChange={handleComponentNameChange}
+        options={componentOptions}
         value={componentName}
-        placeholder="avatar"
       />
       <VerticalSpace space="medium" />
       <Text>
