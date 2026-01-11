@@ -9,3 +9,8 @@ export interface CloseHandler extends EventHandler {
   name: "CLOSE";
   handler: () => void;
 }
+
+export interface AvatarCreatedHandler extends EventHandler {
+  name: "AVATAR_CREATED";
+  handler: () => void;
+}

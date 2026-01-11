@@ -10,17 +10,28 @@ import {
   LoadingIndicator,
   Textbox,
 } from "@create-figma-plugin/ui";
-import { emit } from "@create-figma-plugin/utilities";
+import { emit, on } from "@create-figma-plugin/utilities";
 import { h, JSX, Fragment } from "preact";
-import { useCallback, useState } from "preact/hooks";
+import { useCallback, useState, useEffect } from "preact/hooks";
 
-import { CloseHandler, CreateAvatarHandler } from "./types";
+import {
+  CloseHandler,
+  CreateAvatarHandler,
+  AvatarCreatedHandler,
+} from "./types";
 
 function Plugin() {
   const [value, setValue] = useState<string>("");
   const [result, setResult] = useState<string>("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [componentName, setComponentName] = useState<string>("avatar");
+
+  // Listen for avatar creation completion at the top level
+  useEffect(() => {
+    return on<AvatarCreatedHandler>("AVATAR_CREATED", () => {
+      emit<CloseHandler>("CLOSE");
+    });
+  }, []);
 
   const handleInput = useCallback(function (
     event: JSX.TargetedEvent<HTMLTextAreaElement>
@@ -127,7 +138,8 @@ function Plugin() {
         setResult("Error parsing Avatar props: " + (error as Error).message);
         setIsProcessing(false);
       }
-      emit<CloseHandler>("CLOSE");
+
+      // Plugin will auto-close when main thread emits "AVATAR_CREATED"
     },
     [value, componentName]
   );

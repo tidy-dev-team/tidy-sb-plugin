@@ -1,4 +1,4 @@
-import { once, showUI } from "@create-figma-plugin/utilities";
+import { once, showUI, emit } from "@create-figma-plugin/utilities";
 
 import { CloseHandler, CreateAvatarHandler } from "./types";
 
@@ -69,8 +69,16 @@ export default function () {
       // TEXT properties need special handling - we update the text node directly
       const propertiesToSet: Record<string, any> = {};
       const textPropertiesToSet: Record<string, string> = {};
+      let imageUrl: string | null = null;
       
       for (const [propKey, propValue] of Object.entries(props)) {
+        // Special handling for imageUrl
+        if (propKey === "imageUrl") {
+          imageUrl = String(propValue);
+          console.log(`Found imageUrl: ${imageUrl}`);
+          continue;
+        }
+
         const figmaPropertyName = propertyMapping[propKey];
         
         if (figmaPropertyName) {
@@ -205,7 +213,76 @@ export default function () {
         }
       }
 
+      // Handle image URL if present
+      if (imageUrl) {
+        console.log(`Processing image URL: ${imageUrl}`);
+        figma.notify("🖼️ Fetching image...", { timeout: 2000 });
+        
+        try {
+          // Fetch the image
+          const response = await fetch(imageUrl);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+          }
+          
+          const arrayBuffer = await response.arrayBuffer();
+          const uint8Array = new Uint8Array(arrayBuffer);
+          
+          // Create image in Figma
+          const image = figma.createImage(uint8Array);
+          const imageHash = image.hash;
+          
+          console.log(`Image loaded successfully. Hash: ${imageHash}`);
+          
+          // Find the image layer in the instance
+          // Looking for the "img" frame or other common image layer names
+          const imageLayer = instance.findOne(node => {
+            // Check for frames, ellipses, or rectangles that could hold an image
+            if (node.type !== "FRAME" && node.type !== "ELLIPSE" && node.type !== "RECTANGLE") return false;
+            
+            const name = node.name.toLowerCase();
+            return (
+              name === "img" ||
+              name.includes("image") ||
+              name.includes("picture") ||
+              name.includes("avatar") ||
+              name.includes("photo") ||
+              name === "mask" ||
+              name.includes("fill")
+            );
+          }) as FrameNode | EllipseNode | RectangleNode | null;
+          
+          if (!imageLayer) {
+            console.warn("Could not find image layer. Available layers:", 
+              instance.findAll(() => true).map(n => `${n.name} (${n.type})`).join(", ")
+            );
+            figma.notify("⚠️ Could not find image layer in avatar component", { timeout: 4000 });
+          } else {
+            console.log(`Found image layer: ${imageLayer.name} (${imageLayer.type})`);
+            
+            // Apply the image as a fill
+            const newFills: Paint[] = [{
+              type: "IMAGE",
+              imageHash: imageHash,
+              scaleMode: "FILL", // Options: "FILL", "FIT", "CROP", "TILE"
+            }];
+            
+            imageLayer.fills = newFills;
+            console.log(`✅ Applied image to layer: ${imageLayer.name}`);
+            figma.notify("✅ Image applied successfully!", { timeout: 2000 });
+          }
+          
+        } catch (error) {
+          console.error("Error fetching/applying image:", error);
+          figma.notify(`❌ Failed to load image: ${(error as Error).message}`, { 
+            error: true, 
+            timeout: 5000 
+          });
+        }
+      }
+
       const allSetProps = [...Object.keys(propertiesToSet), ...Object.keys(textPropertiesToSet)];
+      if (imageUrl) allSetProps.push("imageUrl");
       
       if (allSetProps.length > 0) {
         figma.notify(
@@ -221,6 +298,9 @@ export default function () {
       // Select and zoom to the newly created instance
       figma.currentPage.selection = [instance];
       figma.viewport.scrollAndZoomIntoView([instance]);
+
+      // Emit completion event so UI can close
+      emit("AVATAR_CREATED");
 
     } catch (error) {
       figma.notify(`❌ Error: ${(error as Error).message}`, { error: true });
