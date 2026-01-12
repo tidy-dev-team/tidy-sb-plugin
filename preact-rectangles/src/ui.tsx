@@ -34,13 +34,29 @@ function Plugin() {
     });
   }, []);
 
-  const handleInput = useCallback(function (
-    event: JSX.TargetedEvent<HTMLTextAreaElement>
-  ) {
-    const newValue = event.currentTarget.value;
-    setValue(newValue);
-  },
-  []);
+  const handleInput = useCallback(
+    function (event: JSX.TargetedEvent<HTMLTextAreaElement>) {
+      const newValue = event.currentTarget.value;
+      setValue(newValue);
+
+      // Auto-detect component type from pasted code
+      if (newValue.trim()) {
+        // Check for Button component
+        if (/<Button\s/i.test(newValue)) {
+          if (componentName !== "button") {
+            setComponentName("button");
+          }
+        }
+        // Check for Avatar component
+        else if (/<Avatar\s/i.test(newValue)) {
+          if (componentName !== "avatar") {
+            setComponentName("avatar");
+          }
+        }
+      }
+    },
+    [componentName]
+  );
 
   const handleComponentNameChange = useCallback(function (
     event: JSX.TargetedEvent<HTMLInputElement>
