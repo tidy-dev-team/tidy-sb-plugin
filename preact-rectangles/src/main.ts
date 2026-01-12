@@ -63,6 +63,9 @@ export default function () {
         lowerBadge: "lower badge",
         upperBadge: "upper badge",
         initials: "initials",
+        "✏️ label": "label", // For button label
+        "icon L": "icon L",   // For button left icon
+        "icon R": "icon R",   // For button right icon
       };
 
       // Separate TEXT properties from other properties
@@ -113,6 +116,8 @@ export default function () {
           } else {
             console.warn(`Property "${figmaPropertyName}" not found in available properties`);
           }
+        } else {
+          console.warn(`No mapping found for prop key: "${propKey}"`);
         }
       }
 

@@ -15,8 +15,6 @@ import { emit, on } from "@create-figma-plugin/utilities";
 import { h, JSX, Fragment } from "preact";
 import { useCallback, useState, useEffect } from "preact/hooks";
 
-import "!./styles.css";
-
 import {
   CloseHandler,
   CreateAvatarHandler,
@@ -52,18 +50,34 @@ function Plugin() {
   },
   []);
 
-  const parseAvatarProps = (code: string) => {
+  const parseComponentProps = (code: string, componentType: string) => {
     const props: Record<string, any> = {};
 
-    // Extract props from JSX - match <Avatar ... />
-    const avatarRegex = /<Avatar\s+([\s\S]+?)\/>/g;
-    const match = avatarRegex.exec(code);
+    // Create regex based on component type
+    const componentRegex = new RegExp(
+      `<${
+        componentType.charAt(0).toUpperCase() + componentType.slice(1)
+      }\\s+([\\s\\S]+?)(?:>([\\s\\S]*?)<\\/|\\/>)`,
+      "gi"
+    );
+    const match = componentRegex.exec(code);
 
     if (!match) {
       return null;
     }
 
     const propsString = match[1];
+    const children = match[2];
+
+    // If there are children (text content), add it to props
+    // For buttons, map children to "✏️ label" to match Figma component prop
+    if (children && children.trim()) {
+      if (componentType === "button") {
+        props["✏️ label"] = children.trim();
+      } else {
+        props.children = children.trim();
+      }
+    }
 
     // Parse individual props
     // Handle string props: prop="value" or prop='value'
@@ -71,7 +85,35 @@ function Plugin() {
     let propMatch;
 
     while ((propMatch = stringPropRegex.exec(propsString)) !== null) {
-      props[propMatch[1]] = propMatch[2];
+      const propName = propMatch[1];
+      const propValue = propMatch[2];
+
+      // Map variant to type for buttons
+      if (componentType === "button" && propName === "variant") {
+        props.type = propValue;
+      } else {
+        props[propName] = propValue;
+      }
+    }
+
+    // Handle JSX element props: prop={<Component />}
+    const jsxPropRegex = /(\w+)=\{<([^>]+)\s*\/>\}/g;
+    while ((propMatch = jsxPropRegex.exec(propsString)) !== null) {
+      const propName = propMatch[1];
+      const propValue = propMatch[2];
+
+      // For buttons, map iconL/iconR to "icon L"/"icon R" and set to true
+      if (componentType === "button") {
+        if (propName === "iconL") {
+          props["icon L"] = true;
+        } else if (propName === "iconR") {
+          props["icon R"] = true;
+        } else {
+          props[propName] = `<${propValue} />`;
+        }
+      } else {
+        props[propName] = `<${propValue} />`;
+      }
     }
 
     // Handle boolean props: prop={true/false} or just prop (true)
@@ -79,6 +121,9 @@ function Plugin() {
     while ((propMatch = booleanPropRegex.exec(propsString)) !== null) {
       const propName = propMatch[1];
       const propValue = propMatch[2];
+
+      // Skip if already captured by other regex
+      if (props[propName]) continue;
 
       // If no explicit value, it's a truthy boolean prop
       if (!propValue && !props[propName]) {
@@ -97,7 +142,7 @@ function Plugin() {
     return props;
   };
 
-  const handleCreateAvatar = useCallback(
+  const handleCreateComponent = useCallback(
     function () {
       if (!value.trim()) {
         setResult("Please paste Storybook code first");
@@ -105,7 +150,7 @@ function Plugin() {
       }
 
       if (!componentName.trim()) {
-        setResult("Please enter a component name");
+        setResult("Please select a component type");
         return;
       }
 
@@ -113,15 +158,24 @@ function Plugin() {
       setResult("");
 
       try {
-        const props = parseAvatarProps(value);
+        const props = parseComponentProps(value, componentName);
 
         if (!props) {
+          const exampleCode =
+            componentName === "avatar"
+              ? '<Avatar name="John Doe" size="large" />'
+              : '<Button size="m" variant="contained">Button</Button>';
+
           setResult(
-            'No Avatar component found in the pasted code.\n\nMake sure your code includes something like:\n<Avatar name="John Doe" size="large" />'
+            `No ${
+              componentName.charAt(0).toUpperCase() + componentName.slice(1)
+            } component found in the pasted code.\n\nMake sure your code includes something like:\n${exampleCode}`
           );
           setIsProcessing(false);
           return;
         }
+
+        console.log("Parsed props:", props);
 
         // Send props and component name to main thread
         emit<CreateAvatarHandler>("CREATE_AVATAR", {
@@ -138,7 +192,9 @@ function Plugin() {
         );
         setIsProcessing(false);
       } catch (error) {
-        setResult("Error parsing Avatar props: " + (error as Error).message);
+        setResult(
+          `Error parsing ${componentName} props: ` + (error as Error).message
+        );
         setIsProcessing(false);
       }
 
@@ -152,9 +208,14 @@ function Plugin() {
   }, []);
 
   const componentOptions: Array<DropdownOption> = [
-    { value: "avatar", text: "avatar" },
-    { value: "button", text: "button" },
+    { value: "avatar", text: "Avatar" },
+    { value: "button", text: "Button" },
   ];
+
+  const placeholderText =
+    componentName === "avatar"
+      ? `Paste your Storybook code here...\n\nExample:\n<Avatar\n  name="John Doe"\n  size="large"\n  variant="circle"\n  showStatus={true}\n/>`
+      : `Paste your Storybook code here...\n\nExample:\n<Button\n  iconL={<Plus />}\n  iconR={<ArrowRight />}\n  size="m"\n  variant="contained"\n>\n  Button\n</Button>`;
 
   return (
     <Container space="medium">
@@ -170,17 +231,21 @@ function Plugin() {
       />
       <VerticalSpace space="medium" />
       <Text>
-        <Muted>Paste Storybook Avatar Implementation</Muted>
+        <Muted>
+          Paste Storybook{" "}
+          {componentName.charAt(0).toUpperCase() + componentName.slice(1)}{" "}
+          Implementation
+        </Muted>
       </Text>
       <VerticalSpace space="small" />
       <TextboxMultiline
         onInput={handleInput}
         value={value}
         rows={10}
-        placeholder={`Paste your Storybook code here...\n\nExample:\n<Avatar\n  name="John Doe"\n  size="large"\n  variant="circle"\n  showStatus={true}\n/>`}
+        placeholder={placeholderText}
       />
       <VerticalSpace space="medium" />
-      <Button fullWidth onClick={handleCreateAvatar} disabled={isProcessing}>
+      <Button fullWidth onClick={handleCreateComponent} disabled={isProcessing}>
         {isProcessing ? "Building..." : "Build on Canvas"}
       </Button>
       {isProcessing && (
@@ -199,14 +264,9 @@ function Plugin() {
           <TextboxMultiline value={result} rows={8} disabled />
         </Fragment>
       )}
-      <VerticalSpace space="extraSmall" />
+      <VerticalSpace space="extraLarge" />
       <Columns space="extraSmall">
-        <Button
-          fullWidth
-          onClick={handleCloseButtonClick}
-          secondary
-          className={"secondary"}
-        >
+        <Button fullWidth onClick={handleCloseButtonClick} secondary>
           Close
         </Button>
       </Columns>
