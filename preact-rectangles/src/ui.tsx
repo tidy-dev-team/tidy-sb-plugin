@@ -41,14 +41,14 @@ function Plugin() {
 
       // Auto-detect component type from pasted code
       if (newValue.trim()) {
-        // Check for Button component
-        if (/<Button\s/i.test(newValue)) {
+        // Check for Button component (with or without props/space)
+        if (/<Button[\s>]/i.test(newValue)) {
           if (componentName !== "button") {
             setComponentName("button");
           }
         }
-        // Check for Avatar component
-        else if (/<Avatar\s/i.test(newValue)) {
+        // Check for Avatar component (with or without props/space)
+        else if (/<Avatar[\s>]/i.test(newValue)) {
           if (componentName !== "avatar") {
             setComponentName("avatar");
           }
@@ -70,10 +70,11 @@ function Plugin() {
     const props: Record<string, any> = {};
 
     // Create regex based on component type
+    // Updated to handle components with no props: <Button>...</Button>
     const componentRegex = new RegExp(
       `<${
         componentType.charAt(0).toUpperCase() + componentType.slice(1)
-      }\\s+([\\s\\S]+?)(?:>([\\s\\S]*?)<\\/|\\/>)`,
+      }\\s*([\\s\\S]*?)(?:>([\\s\\S]*?)<\\/|\\/>)`,
       "gi"
     );
     const match = componentRegex.exec(code);
@@ -192,6 +193,16 @@ function Plugin() {
         }
 
         console.log("Parsed props:", props);
+
+        // Add default values for buttons if not specified
+        if (componentName === "button") {
+          if (!props.size) {
+            props.size = "m"; // Default to medium size
+          }
+          if (!props.type) {
+            props.type = "contained"; // Default to contained variant
+          }
+        }
 
         // Send props and component name to main thread
         emit<CreateAvatarHandler>("CREATE_AVATAR", {
